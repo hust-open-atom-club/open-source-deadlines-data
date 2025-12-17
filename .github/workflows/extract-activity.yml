@@ -1,0 +1,255 @@
+name: AI 活动信息提取
+
+on:
+  issues:
+    types: [opened, edited]
+  workflow_dispatch:
+    inputs:
+      url:
+        description: '活动网页 URL'
+        required: false
+      issue_number:
+        description: 'Issue 编号（可选）'
+        required: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  extract-activity:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, '新活动提交'))
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+      
+      - name: 安装依赖
+        run: |
+          cd oseddl-data/extractor
+          pip install httpx openai python-dotenv pyyaml
+      
+      - name: 解析 Issue 内容
+        id: parse-issue
+        if: github.event_name == 'issues'
+        run: |
+          # 从 issue body 中提取 URL
+          ISSUE_BODY="${{ github.event.issue.body }}"
+          
+          # 提取 URL（支持多种格式）
+          URL=$(echo "$ISSUE_BODY" | grep -oP '(?:https?://)[^\s<>"\)]+' | head -1)
+          
+          if [ -z "$URL" ]; then
+            echo "error=未能从 Issue 中提取到有效的 URL" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+      
+      - name: 提取活动信息
+        id: extract
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_MODELS_TOKEN }}
+          AI_PROVIDER: github
+          AI_MODEL: gpt-4o-mini
+        run: |
+          cd oseddl-data/extractor
+          
+          # 确定 URL 来源
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            URL="${{ github.event.inputs.url }}"
+            ISSUE_NUM="${{ github.event.inputs.issue_number }}"
+          else
+            URL="${{ steps.parse-issue.outputs.url }}"
+            ISSUE_NUM="${{ steps.parse-issue.outputs.issue_number }}"
+          fi
+          
+          echo "正在提取活动信息: $URL"
+          
+          # 运行提取脚本（自动保存）
+          if python extract_for_actions.py --url "$URL" > extraction_log.txt 2>&1; then
+            echo "success=true" >> $GITHUB_OUTPUT
+            
+            # 从日志中提取信息
+            TITLE=$(grep -oP "(?<=title: ).*" extraction_log.txt | head -1)
+            CATEGORY=$(grep -oP "(?<=category: ).*" extraction_log.txt | head -1)
+            
+            echo "title=$TITLE" >> $GITHUB_OUTPUT
+            echo "category=$CATEGORY" >> $GITHUB_OUTPUT
+            echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+            
+            # 提取 JSON 内容（用于 Issue 评论）
+            JSON_CONTENT=$(sed -n '/=== 解析后的JSON对象 ===/,/=== JSON对象结束 ===/p' extraction_log.txt | sed '1d;$d')
+            echo "$JSON_CONTENT" > extracted_json.txt
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            ERROR=$(grep -E "error" extraction_log.txt | tail -1)
+            echo "error=$ERROR" >> $GITHUB_OUTPUT
+          fi
+          
+          # 输出完整日志
+          cat extraction_log.txt
+      
+      # - name: 创建分支和提交
+      #   if: steps.extract.outputs.success == 'true'
+      #   run: |
+      #     # 配置 Git
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     
+      #     # 创建新分支
+      #     BRANCH_NAME="activity/add-${{ steps.extract.outputs.category }}-$(date +%Y%m%d-%H%M%S)"
+      #     git checkout -b "$BRANCH_NAME"
+      #     
+      #     # 提交变更
+      #     git add data/*.yml
+      #     git commit -m "feat: 添加活动 - ${{ steps.extract.outputs.title }}" \
+      #                -m "通过 AI 自动提取" \
+      #                -m "来源: Issue #${{ steps.extract.outputs.issue_number }}"
+      #     
+      #     # 推送分支
+      #     git push origin "$BRANCH_NAME"
+      #     
+      #     echo "branch=$BRANCH_NAME" >> $GITHUB_ENV
+      # 
+      # - name: 创建 Pull Request
+      #   if: steps.extract.outputs.success == 'true'
+      #   uses: peter-evans/create-pull-request@v6
+      #   with:
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     branch: ${{ env.branch }}
+      #     title: "添加活动: ${{ steps.extract.outputs.title }}"
+      #     body: |
+      #       ## 自动提取的活动信息
+      #       
+      #       **活动名称**: ${{ steps.extract.outputs.title }}
+      #       **活动类别**: ${{ steps.extract.outputs.category }}
+      #       **来源 Issue**: #${{ steps.extract.outputs.issue_number }}
+      #       
+      #       ---
+      #       
+      #       此 PR 由 AI Agent 自动生成，请 Maintainer 审核以下内容：
+      #       
+      #       - [ ] 活动信息准确完整
+      #       - [ ] 时间格式正确（ISO 8601）
+      #       - [ ] 时区设置正确
+      #       - [ ] 活动 ID 唯一且规范
+      #       - [ ] 标签使用合理，无重复创建
+      #       - [ ] 链接可访问
+      #       
+      #       ### 提取日志
+      #       
+      #       详见 GitHub Actions 运行日志
+      #       
+      #       ---
+      #       
+      #       自动化工作流: `.github/workflows/extract-activity.yml`
+      #     labels: |
+      #       自动生成
+      #       待审核
+      #       ${{ steps.extract.outputs.category }}
+      
+      - name: 读取提取的 YAML
+        id: read-yaml
+        if: steps.extract.outputs.success == 'true' && github.event_name == 'issues'
+        run: |
+          cd oseddl-data/extractor
+          if [ -f "extracted_yaml.txt" ]; then
+            # 读取 YAML 内容
+            YAML_CONTENT=$(cat extracted_yaml.txt)
+            
+            # 转义特殊字符用于 GitHub Actions
+            YAML_CONTENT="${YAML_CONTENT//'%'/'%25'}"
+            YAML_CONTENT="${YAML_CONTENT//$'\n'/'%0A'}"
+            YAML_CONTENT="${YAML_CONTENT//$'\r'/'%0D'}"
+            
+            echo "yaml_content<<EOF" >> $GITHUB_OUTPUT
+            cat extracted_yaml.txt >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: 添加 Issue 评论（成功）
+        if: steps.extract.outputs.success == 'true' && github.event_name == 'issues'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const jsonContent = fs.readFileSync('oseddl-data/extractor/extracted_json.txt', 'utf8');
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.extract.outputs.issue_number }},
+              body: `## 活动信息提取成功！
+
+            **活动名称**: ${{ steps.extract.outputs.title }}  
+            **活动类别**: ${{ steps.extract.outputs.category }}
+
+                ### 提取的活动信息
+
+            \`\`\`json
+            ${jsonContent}
+            \`\`\`
+
+            查看 [Actions 运行日志](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ---
+
+            由 AI Agent 自动处理`
+            });
+            
+            // 添加标签
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.extract.outputs.issue_number }},
+              labels: ['已处理', '待审核']
+            });
+      
+      - name: 添加 Issue 评论（失败）
+        if: steps.extract.outputs.success == 'false' && github.event_name == 'issues'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.extract.outputs.issue_number || github.event.issue.number }},
+              body: `## 活动信息提取失败
+              
+              **错误信息**: ${{ steps.extract.outputs.error || steps.parse-issue.outputs.error }}
+              
+              可能的原因：
+              - URL 格式不正确或无法访问
+              - 网页内容不包含足够的活动信息
+              - API 配额已用完
+              
+              请检查 Issue 内容并重新提交，或手动添加活动信息。
+              
+              查看 [Actions 运行日志](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              
+              ---
+              
+              由 AI Agent 自动处理`
+            });
+            
+            // 添加标签
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.extract.outputs.issue_number || github.event.issue.number }},
+              labels: ['处理失败', '需要人工处理']
+            });
