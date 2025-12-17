@@ -38,7 +38,7 @@ jobs:
       
       - name: 安装依赖
         run: |
-          cd oseddl-data/extractor
+          cd extractor
           pip install httpx openai python-dotenv pyyaml
       
       - name: 解析 Issue 内容
@@ -66,7 +66,7 @@ jobs:
           AI_PROVIDER: github
           AI_MODEL: gpt-4o-mini
         run: |
-          cd oseddl-data/extractor
+          cd extractor
           
           # 确定 URL 来源
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
@@ -166,7 +166,7 @@ jobs:
         id: read-yaml
         if: steps.extract.outputs.success == 'true' && github.event_name == 'issues'
         run: |
-          cd oseddl-data/extractor
+          cd extractor
           if [ -f "extracted_yaml.txt" ]; then
             # 读取 YAML 内容
             YAML_CONTENT=$(cat extracted_yaml.txt)
@@ -187,7 +187,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const jsonContent = fs.readFileSync('oseddl-data/extractor/extracted_json.txt', 'utf8');
+            const jsonContent = fs.readFileSync('extractor/extracted_json.txt', 'utf8');
             
             github.rest.issues.createComment({
               owner: context.repo.owner,
