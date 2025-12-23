@@ -181,6 +181,17 @@ class AIAgentService:
 10. date使用中文格式，如"2025 年 6 月 1 日"或"2025 年 6 月 1 日 - 9 月 30 日"
 11. 如果提取不到某个必需字段，使用合理的默认值或从上下文推断
 
+【timeline关键要求】：
+- timeline数组必须包含活动的所有重要时间点
+- 必须包含：活动开始时间（comment: '活动开始'）和活动结束时间（comment: '活动结束'）
+- 可选包含：报名截止、项目截止等其他关键时间
+- 时间格式必须是ISO 8601：YYYY-MM-DDTHH:mm:ss（必须包含时分秒）
+- 如果只有日期没有具体时间，开始时间使用T00:00:00，结束时间使用T23:59:59
+- 示例：
+  - 2025-12-26T14:00:00（活动开始）
+  - 2025-12-26T16:30:00（活动结束）
+  - 2025-12-25T18:00:00（报名截止）
+
 【标签建议】（优先使用）：{('、'.join(existing_tags[:20])) if existing_tags else '无'}
 【已存在ID】（避免重复）：{('、'.join(existing_ids[:10])) + ('等' if len(existing_ids) > 10 else '') if existing_ids else '无'}
 
@@ -196,7 +207,8 @@ class AIAgentService:
     "link": "https://summer-ospp.ac.cn",
     "timeline": [
       {{"deadline": "2025-06-04T18:00:00", "comment": "项目申请截止"}},
-      {{"deadline": "2025-09-30T23:59:59", "comment": "项目结项"}}
+      {{"deadline": "2025-09-01T09:00:00", "comment": "活动开始"}},
+      {{"deadline": "2025-09-30T23:59:59", "comment": "活动结束"}}
     ],
     "timezone": "Asia/Shanghai",
     "date": "2025 年 4 月 30 日 - 9 月 30 日",
