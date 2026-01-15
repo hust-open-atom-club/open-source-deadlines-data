@@ -14,7 +14,7 @@ class AIAgentService:
     def __init__(self):
         
         self.provider = os.getenv('AI_PROVIDER', 'github')  
-        self.model = os.getenv('AI_MODEL', 'gpt-4o-mini')
+        self.model = os.getenv('AI_MODEL', 'gpt-5-mini')
         
         if self.provider == 'github':
             api_key = os.getenv('GITHUB_TOKEN')
@@ -160,7 +160,9 @@ class AIAgentService:
     "link": "活动官网URL（必填）",
     "timeline": [{{
       "deadline": "2025-06-01T18:00:00（必填，ISO 8601格式）",
-      "comment": "截止说明，如报名截止（必填）"
+      "comment": "截止说明，如活动开始（必填）"
+      "deadline": "2025-06-01T18:00:00（必填，ISO 8601格式）",
+      "comment": "截止说明，如活动结束（必填）"
     }}],
     "timezone": "Asia/Shanghai（必填，IANA时区）",
     "date": "2025 年 6 月 1 日 - 9 月 30 日（必填，人类可读）",
